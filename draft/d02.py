@@ -31,7 +31,7 @@ def batch_inference(ckpt):
 
 
 if __name__ == "__main__":
-    # ckpt = "facebook/opt-350m"
-    # ckpt = "bigscience/bloomz-560m"
-    ckpt = "/root/autodl-fs/llama-to-hf"
+    ckpt = "facebook/opt-6.7b"
+    # ckpt = "bigscience/bloomz-7b1"
+    # ckpt = "/root/autodl-fs/llama-to-hf"
     batch_inference(ckpt)

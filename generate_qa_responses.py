@@ -1,4 +1,5 @@
 import pdb
+import os
 import math
 import torch
 from transformers import AutoTokenizer
@@ -9,6 +10,8 @@ import json
 from dataclasses import dataclass, asdict
 from typing import List, Optional
 from copy import deepcopy
+import warnings
+warnings.filterwarnings('ignore')
 
 
 @dataclass(frozen=True)
@@ -62,17 +65,17 @@ def get_qa_prompt(
     return prompt_template.format(question=question, search_results="\n".join(formatted_documents))
 
 
-def prepare_prompts(data_path):
+def prepare_prompts(input_path):
     prompts, examples, all_model_documents = [], [], []
     print("Reading data file...")
-    with xopen(data_path) as fin:
+    with xopen(input_path) as fin:
         for line in fin:
             input_example = json.loads(line)
 
             question = input_example["question"]
             documents = [Document.from_dict(ctx) for ctx in deepcopy(input_example["ctxs"])]
             prompt = get_qa_prompt(question, documents, mention_random_ordering=False, query_aware_contextualization=False)
-                    
+
         prompts.append(prompt)
         examples.append(deepcopy(input_example))
         all_model_documents.append(documents)
@@ -80,7 +83,14 @@ def prepare_prompts(data_path):
     return prompts, examples, all_model_documents
 
 
-def prepare_model_and_tokenizer(model_path):
+def prepare_model_and_tokenizer(model_name):
+    if model_name == "llama":
+        model_path = "/root/autodl-fs/llama2-7b-to-hf"
+    elif model_name == "opt":
+        model_path = "facebook/opt-6.7b"
+    elif model_name == "bloomz":
+        model_path = "bigscience/bloomz-7b1"
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -98,9 +108,10 @@ def prepare_model_and_tokenizer(model_path):
 
 
 def experiment(
-    data_path, 
+    input_path, 
     output_path,
-    model_path,
+    model,
+    tokenizer,
     batch_size=1,
     device="cuda",
     max_new_tokens=100,
@@ -112,8 +123,7 @@ def experiment(
         for i in range(0, len(lst), n):
             yield lst[i : i + n]
 
-    prompts, examples, all_model_documents = prepare_prompts(data_path)
-    model, tokenizer = prepare_model_and_tokenizer(model_path)
+    prompts, examples, all_model_documents = prepare_prompts(input_path)
     
     responses = []
     print("Generating responses...")
@@ -122,12 +132,12 @@ def experiment(
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=temperature > 0.0,
-            temperature=temperature if temperature > 0 else None,
-            top_p=top_p if temperature > 0 else None,
-            return_dict_in_generate=False,
+            # do_sample=temperature > 0.0,
+            # temperature=temperature if temperature > 0 else None,
+            # top_p=top_p if temperature > 0 else None,
+            # return_dict_in_generate=False,
         )
-        
+
         for i, generated_sequence in enumerate(outputs):
             input_ids = inputs["input_ids"][i]
             text = tokenizer.decode(generated_sequence, skip_special_tokens=True, clean_up_tokenization_spaces=True)
@@ -146,22 +156,37 @@ def experiment(
             
             responses.append(cleaned_text)
             
-            pdb.set_trace()
-
     with xopen(output_path, "w") as f:
         for example, model_documents, prompt, response in zip(examples, all_model_documents, prompts, responses):
             output_example = deepcopy(example)
             output_example["model_prompt"] = prompt
             output_example["model_documents"] = [asdict(document) for document in model_documents]
             output_example["model_answer"] = response
-            output_example["model"] = model_path
+            output_example["model"] = model_name
             output_example["model_temperature"] = temperature
             output_example["model_top_p"] = top_p
             f.write(json.dumps(output_example) + "\n")
 
 
 if __name__ == '__main__':
-    data_path = "/root/zhenting/ushape/data/qa_data/10_total_documents/nq-open-10_total_documents_gold_at_4.jsonl.gz"
-    output_path = "/root/zhenting/ushape/data/qa_data/10_total_documents/nq-open-10_total_documents_gold_at_4-responses.jsonl.gz"
-    model_path = "/root/autodl-fs/llama-to-hf"
-    experiment(data_path, output_path, model_path)
+    data_root = "/root/zhenting/ushape/data/qa_data"
+    out_root = "/root/zhenting/ushape/data/qa_out"
+    
+    # for model_name in ["opt", "bloomz", "llama"]:
+    for model_name in ["llama", ]:
+        model, tokenizer = prepare_model_and_tokenizer(model_name)
+        # for num_doc in ["10", "20", "30"]:
+        for num_doc in ["10", ]:    # 20 and 30 are too long
+            data_dir_path = os.path.join(data_root, num_doc + "_total_documents")
+            out_dir_path = os.path.join(out_root, num_doc + "_total_documents")
+            if not os.path.exists(out_dir_path):
+                os.makedirs(out_dir_path)
+
+            for gz_file in os.listdir(data_dir_path):
+                input_path = os.path.join(data_dir_path, gz_file)
+                s = gz_file.split(".")
+                assert len(s) == 3
+                output_path = os.path.join(out_dir_path, ".".join([s[0] + "-" + model_name, s[1], s[2]]))
+                experiment(input_path, output_path, model, tokenizer)
+
+    print("DONE!")
