@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Given a data file with LM QA predictions, evaluate the predictions.
 """
+import os
 import argparse
 import json
 import logging
@@ -54,7 +55,22 @@ METRICS = [
 ]
 
 
-def main(
+def get_metrics_for_example(example):
+    gold_answers = example["answers"]
+    model_answer = example["model_answer"]
+
+    # NOTE: we take everything up to the first newline, since otherwise models could hack
+    # the metric by simply copying te input context (as the gold answer is guaranteed
+    # to occur in the input context).
+    model_answer = model_answer.split("\n")[0].strip()
+
+    example_metrics = {}
+    for (metric, metric_name) in METRICS:
+        example_metrics[metric_name] = metric(prediction=model_answer, ground_truths=gold_answers)
+    return (example_metrics, example)
+
+
+def evaluate(
     input_path,
     output_path,
 ):
@@ -77,43 +93,34 @@ def main(
         )
         logger.info(f"{metric_name}: {average_metric_value}")
 
-    if output_path:
-        with xopen(output_path, "w") as f:
-            for (example_metrics, example) in all_example_metrics:
-                example_with_metrics = deepcopy(example)
-                for metric_name, metric_value in example_metrics.items():
-                    example_with_metrics[f"metric_{metric_name}"] = metric_value
-                f.write(json.dumps(example_with_metrics) + "\n")
-
-
-def get_metrics_for_example(example):
-    gold_answers = example["answers"]
-    model_answer = example["model_answer"]
-
-    # NOTE: we take everything up to the first newline, since otherwise models could hack
-    # the metric by simply copying te input context (as the gold answer is guaranteed
-    # to occur in the input context).
-    model_answer = model_answer.split("\n")[0].strip()
-
-    example_metrics = {}
-    for (metric, metric_name) in METRICS:
-        example_metrics[metric_name] = metric(prediction=model_answer, ground_truths=gold_answers)
-    return (example_metrics, example)
+    with xopen(output_path, "w") as f:
+        for (example_metrics, example) in all_example_metrics:
+            example_with_metrics = deepcopy(example)
+            for metric_name, metric_value in example_metrics.items():
+                example_with_metrics[f"metric_{metric_name}"] = metric_value
+            f.write(json.dumps(example_with_metrics) + "\n")
 
 
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s - %(module)s - %(levelname)s - %(message)s", level=logging.INFO)
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-path", help="Path to data with model predictions and answers.", required=True)
-    parser.add_argument(
-        "--output-path",
-        help="Path to write data with model predictions, answers, and scores.",
-    )
-    args = parser.parse_args()
 
-    logger.info("running %s", " ".join(sys.argv))
-    main(
-        args.input_path,
-        args.output_path,
-    )
-    logger.info("finished running %s", sys.argv[0])
+    out_root = "/root/zhenting/ushape/data/qa_out"
+    eval_root = "/root/zhenting/ushape/data/qa_eval"
+
+    for num_doc in ["10", ]:
+        out_dir_path = os.path.join(out_root, num_doc + "_total_documents")
+        eval_dir_path = os.path.join(eval_root, num_doc + "_total_documents")
+        if not os.path.exists(eval_dir_path):
+            os.makedirs(eval_dir_path)
+
+        for gz_file in os.listdir(out_dir_path):
+            input_path = os.path.join(out_dir_path, gz_file)
+            s = gz_file.split(".")
+            assert len(s) == 3
+            output_path = os.path.join(eval_dir_path, ".".join([s[0] + "-eval", s[1], s[2]]))
+            evaluate(
+                input_path,
+                output_path,
+            )
+    
+    print("DONE!")

@@ -65,10 +65,11 @@ def get_qa_prompt(
     return prompt_template.format(question=question, search_results="\n".join(formatted_documents))
 
 
-def prepare_prompts(input_path):
+def prepare_prompts(input_path, max_num_examples_to_get=200):
     prompts, examples, all_model_documents = [], [], []
     print("Reading data file...")
     with xopen(input_path) as fin:
+        num_examples = 0
         for line in fin:
             input_example = json.loads(line)
 
@@ -76,9 +77,13 @@ def prepare_prompts(input_path):
             documents = [Document.from_dict(ctx) for ctx in deepcopy(input_example["ctxs"])]
             prompt = get_qa_prompt(question, documents, mention_random_ordering=False, query_aware_contextualization=False)
 
-        prompts.append(prompt)
-        examples.append(deepcopy(input_example))
-        all_model_documents.append(documents)
+            prompts.append(prompt)
+            examples.append(deepcopy(input_example))
+            all_model_documents.append(documents)
+            
+            num_examples += 1
+            if num_examples == max_num_examples_to_get:
+                break
 
     return prompts, examples, all_model_documents
 
@@ -118,6 +123,8 @@ def experiment(
     temperature=0.0,
     top_p=1.0,
 ):
+    print(f"Reading {input_path}...")
+    
     def chunks(lst, n):
         """Yield successive n-sized chunks from lst."""
         for i in range(0, len(lst), n):
@@ -155,7 +162,8 @@ def experiment(
             cleaned_text = text[prompt_length:]
             
             responses.append(cleaned_text)
-            
+    
+    print(f"Writing to {output_path}...")
     with xopen(output_path, "w") as f:
         for example, model_documents, prompt, response in zip(examples, all_model_documents, prompts, responses):
             output_example = deepcopy(example)
@@ -172,8 +180,9 @@ if __name__ == '__main__':
     data_root = "/root/zhenting/ushape/data/qa_data"
     out_root = "/root/zhenting/ushape/data/qa_out"
     
-    # for model_name in ["opt", "bloomz", "llama"]:
-    for model_name in ["llama", ]:
+    for model_name in ["opt", "bloomz", "llama"]:
+    # for model_name in ["bloomz", ]:
+        torch.cuda.empty_cache()
         model, tokenizer = prepare_model_and_tokenizer(model_name)
         # for num_doc in ["10", "20", "30"]:
         for num_doc in ["10", ]:    # 20 and 30 are too long
@@ -188,5 +197,7 @@ if __name__ == '__main__':
                 assert len(s) == 3
                 output_path = os.path.join(out_dir_path, ".".join([s[0] + "-" + model_name, s[1], s[2]]))
                 experiment(input_path, output_path, model, tokenizer)
+        del model
+        del tokenizer
 
     print("DONE!")
