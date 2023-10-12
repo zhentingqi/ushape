@@ -8,7 +8,7 @@ from collections import defaultdict
 
 def plot():
     eval_root = "/root/zhenting/ushape/data/qa_eval"
-    model_pe = {"opt": "absolute position embedding", "llama": "Rotary", "bloomz": "ALiBi"}
+    model_pe = {"opt": "Absolute Position Embedding", "llama": "Rotary", "bloomz": "ALiBi"}
 
     for num_doc in ["10", ]:
         model_performance = defaultdict(list)
