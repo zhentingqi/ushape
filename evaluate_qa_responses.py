@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Given a data file with LM QA predictions, evaluate the predictions.
 """
 import os
