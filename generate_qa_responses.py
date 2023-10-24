@@ -3,7 +3,7 @@ import os
 import math
 import torch
 from transformers import AutoTokenizer
-from transformers import OPTForCausalLM, BloomForCausalLM, LlamaForCausalLM
+from transformers import OPTForCausalLM, BloomForCausalLM, LlamaForCausalLM, AutoModelForCausalLM
 from tqdm import tqdm
 from xopen import xopen
 import json
@@ -89,26 +89,25 @@ def prepare_prompts(input_path, max_num_examples_to_get=200):
 
 
 def prepare_model_and_tokenizer(model_name):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     if model_name == "llama":
         model_path = "/root/autodl-fs/llama2-7b-to-hf"
+        model = LlamaForCausalLM.from_pretrained(model_path).half().to(device)
     elif model_name == "opt":
         model_path = "facebook/opt-6.7b"
+        model = OPTForCausalLM.from_pretrained(model_path).half().to(device)
     elif model_name == "bloomz":
         model_path = "bigscience/bloomz-7b1"
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = BloomForCausalLM.from_pretrained(model_path).half().to(device)
+    elif model_name == "rwkv":
+        model_path = "RWKV/rwkv-raven-7b"
+        model = AutoModelForCausalLM.from_pretrained(model_path).half().to(device)
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     tokenizer.padding_side = "left"
     tokenizer.pad_token = tokenizer.eos_token
     
-    if "opt" in model_path:
-        model = OPTForCausalLM.from_pretrained(model_path).to(device)
-    elif "bloomz" in model_path:
-        model = BloomForCausalLM.from_pretrained(model_path).to(device)
-    elif "llama" in model_path:
-        model = LlamaForCausalLM.from_pretrained(model_path).to(device)
-
     return model, tokenizer
 
 
@@ -177,11 +176,11 @@ def experiment(
 
 
 if __name__ == '__main__':
-    data_root = "/root/zhenting/ushape/data/qa_data"
-    out_root = "/root/zhenting/ushape/data/qa_out"
+    data_root = "/root/autodl-fs/mine/ushape/data/qa_data/"
+    out_root = "/root/zhenting/ushape/qa_out"
     
-    for model_name in ["opt", "bloomz", "llama"]:
-    # for model_name in ["bloomz", ]:
+    # for model_name in ["opt", "bloomz", "llama", "rwkv"]:
+    for model_name in ["rwkv", ]:
         torch.cuda.empty_cache()
         model, tokenizer = prepare_model_and_tokenizer(model_name)
         # for num_doc in ["10", "20", "30"]:
